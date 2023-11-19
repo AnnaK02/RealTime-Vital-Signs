@@ -1,8 +1,6 @@
 /********************************************************************/
 /*
   Real Time Vital Signs
-  Grupo:
-
 */
 /*******************************************************************/
 
@@ -151,16 +149,18 @@ uint32_t tsLastReport = 0;
 
 
 /*************************Variáveis Globais*************************/
-int tempoCicloMedicao = 5;
-//int tempoParaNovoCicloHoras = 12;
+int tempoContador = 0;
+int tempoCicloMedicao = 10;
 
 float medicaoTotalTemp = 0;
 int medicaoTotalBatimentos = 0;
 float medicaoTotalO2 = 0;
 
-float mediaTemp = 0;
 int mediaBatimentos = 0;
 float mediaO2 = 0;
+
+const int buzzer = 2;
+const int button = 4;
 
 /* JSON */
 String payload;
@@ -173,6 +173,9 @@ void setup() {
   Serial.begin(115200);
   initWiFi();
   initMQTT();
+
+  pinMode(buzzer, OUTPUT); 
+  pinMode(button, INPUT_PULLUP);
 
   /* Setup DS18B20 */
   sensors.begin();
@@ -220,36 +223,61 @@ void onBeatDetected(){
 void loop() {
   VerificaConexoesWiFIEMQTT();
 
-  int tempoContador = tempoCicloMedicao;
-  medicaoTotalTemp = 0;
-  medicaoTotalBatimentos = 0;
-  medicaoTotalO2 = 0;
+  if(digitalRead(button) == 0){
+    
+    /* Aviso sonoro - inicio das medicoes */
+    Serial.println("Inicializando medicoes em: 3");
+    tone(buzzer, 1000);
+    delay(500);
+    noTone(buzzer);
+    delay(500);
+    Serial.println("Inicializando medicoes em: 2");
+    tone(buzzer, 1000);
+    delay(500);
+    noTone(buzzer);
+    delay(500);
+    Serial.println("Inicializando medicoes em: 1");
+    tone(buzzer, 1000);
+    delay(500);
+    noTone(buzzer);
+    delay(500);
+    
+    tempoContador = tempoCicloMedicao;
+    medicaoTotalTemp = 0;
+    medicaoTotalBatimentos = 0;
+    medicaoTotalO2 = 0;
 
-  while (tempoContador > 0) {
-    medicaoTotalTemp += buscaDadosTemperatura();
-    medicaoTotalBatimentos += buscaDadosBPM();
-    medicaoTotalO2 += buscaDadosO2();
-
-    tempoContador--;
-    delay(1000);
-   }
-
-  mediaTemp = calculaMedia(medicaoTotalTemp);
-  mediaBatimentos = calculaMedia(medicaoTotalBatimentos);
-  mediaO2 = calculaMedia(mediaO2);
+    for(int i=0; i<tempoCicloMedicao; i++){
+      
+      medicaoTotalTemp = buscaDadosTemperatura();
+      
+      for(int j=0; j<5; j++){
+        medicaoTotalBatimentos += buscaDadosBPM();
+        medicaoTotalO2 += buscaDadosO2();
   
-  Serial.print("A media é: ");
-  Serial.println(mediaTemp);
-  Serial.print("A media é: ");
-  Serial.println(mediaBatimentos);
-  Serial.print("A media é: ");
-  Serial.println(mediaO2);
-
-  buildPayload();
-  MQTT.publish(TOPICO_PUBLISH, payloadChar);
+        delay(150);
+      }
+      
+      mediaBatimentos = calculaMedia(medicaoTotalBatimentos);
+      mediaO2 = calculaMedia(mediaO2);
   
-  //delay(horasParaMilesimos(tempoParaNovoCicloHoras));
-}
+      buildPayload();
+  
+      /* Medicoes concluidas, enviando para sistema */
+      MQTT.publish(TOPICO_PUBLISH, payloadChar);
+
+      delay(200);
+    }
+  
+    /* Aviso sonoro - termino das medicoes e envio de dados */
+    Serial.println("Enviado");
+    tone(buzzer, 1000);
+    delay(100);
+    noTone(buzzer);
+    delay(100);
+  }
+   
+ }
 
 
 /* Temperatura */
@@ -257,7 +285,7 @@ float buscaDadosTemperatura () {
   /* use sensors.requestTemperatures() para o requerimento de temperatura de todos os dispositivos ligados */
   /* Envia o comando para leitura da temperatura */
   sensors.requestTemperatures();
-  Serial.print("A temperatura é: ");
+  Serial.print("Temperatura: ");
   Serial.println(sensors.getTempC(sensor1));
   return sensors.getTempC(sensor1);
 }
@@ -271,8 +299,6 @@ int buscaDadosBPM(){
   {
     Serial.print("BPM: ");
     Serial.println(BPM);
-    Serial.println("*********************************");
-    Serial.println();
     tsLastReport = millis();
   }
 
@@ -289,16 +315,10 @@ float buscaDadosO2(){
     Serial.print("SpO2: ");
     Serial.print(SpO2);
     Serial.println("%");
-    Serial.println("*********************************");
-    Serial.println();
     tsLastReport = millis();
   }
 
   return SpO2;
-}
-
-int horasParaMilesimos(int horas) {
-  return horas * 60 * 60 * 1000;
 }
 
 float calculaMedia(float valor) {
@@ -315,11 +335,11 @@ void buildPayload(){
   payload = "{\"customerId\": \"4e59a711-b3b3-4fbd-849d-804dacb15e43\",";
   
   measurements = " \"measurement\": {\"bpm\": ";
-  measurements += 0; //mediaBatimentos
+  measurements += mediaBatimentos; //mediaBatimentos
   measurements += ", \"oxygenation\": ";
-  measurements += 0; // mediaO2
+  measurements += mediaO2; // mediaO2
   measurements += ", \"temperature\": ";
-  measurements += mediaTemp; // mediaTemp
+  measurements += medicaoTotalTemp; // medicaoTotalTemp
   measurements += "}}";
    
   payload += measurements;
